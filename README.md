@@ -1,5 +1,10 @@
 # ao486 port for MiSTer by Sorgelig.
 
+By default MT32 should be connected to to USER_IO1 which is the DB9 connector. In the release this is indicated with ao486-_XXXXXXXX.rbf
+If you choose to conenct your MT32 to the USER_IO2 then you should uncomment the following line (line 62 of the ao486.qsf) and compile again.
+#set_global_assignment -name VERILOG_MACRO "MISTER_DUAL_SDRAM=1"
+Alternatevly you can use the ao486+_XXXXXXXX.rbf
+
 Core was greatly reworked with many new features and performance added.
 
 ## Features:
