@@ -53,10 +53,22 @@ module sys_top
 	output  [1:0] SDRAM_BA,
 	output        SDRAM_CLK,
 
+`ifdef MISTER_DUAL_SDRAM
+	////////// SDR #2 //////////
+	output [12:0] SDRAM2_A,
+	inout  [15:0] SDRAM2_DQ,
+	output        SDRAM2_nWE,
+	output        SDRAM2_nCAS,
+	output        SDRAM2_nRAS,
+	output        SDRAM2_nCS,
+	output  [1:0] SDRAM2_BA,
+	output        SDRAM2_CLK,
+
+`else
 	//////////// VGA ///////////
-	output  [7:0] VGA_R,
-	output  [7:0] VGA_G,
-	output  [7:0] VGA_B,
+	output  [5:0] VGA_R,
+	output  [5:0] VGA_G,
+	output  [5:0] VGA_B,
 	inout         VGA_HS,  // VGA_HS is secondary SD card detect when VGA_EN = 1 (inactive)
 	output		  VGA_VS,
 	input         VGA_EN,  // active low
@@ -73,6 +85,7 @@ module sys_top
 	input         BTN_USER,
 	input         BTN_OSD,
 	input         BTN_RESET,
+`endif
 
 	////////// ADC //////////////
 	output        ADC_SCK,
@@ -104,15 +117,35 @@ wire led_d =  led_disk[1]  ? ~led_disk[0]  : ~(led_disk[0] | gp_out[29]);
 wire led_u = ~led_user;
 wire led_locked;
 
-assign LED_POWER = led_p ? 1'bZ : 1'b0;
-assign LED_HDD   = led_d ? 1'bZ : 1'b0;
-assign LED_USER  = led_u ? 1'bZ : 1'b0;
+`ifndef MISTER_DUAL_SDRAM
+	assign LED_POWER = (SW[3] | led_p) ? 1'bZ : 1'b0;
+	assign LED_HDD   = (SW[3] | led_d) ? 1'bZ : 1'b0;
+	assign LED_USER  = (SW[3] | led_u) ? 1'bZ : 1'b0;
+`endif
 
 //LEDs on main board
 assign LED = (led_overtake & led_state) | (~led_overtake & {1'b0,led_locked,1'b0, ~led_p, 1'b0, ~led_d, 1'b0, ~led_u});
 
 wire btn_r, btn_o, btn_u;
-assign {btn_r,btn_o,btn_u} = ~{BTN_RESET,BTN_OSD,BTN_USER};
+`ifdef MISTER_DUAL_SDRAM
+	assign {btn_r,btn_o,btn_u} = SW[3] ? {mcp_btn[1],mcp_btn[2],mcp_btn[0]} : ~{SDRAM2_DQ[9],SDRAM2_DQ[13],SDRAM2_DQ[11]};
+`else
+	assign {btn_r,btn_o,btn_u} = ~{BTN_RESET,BTN_OSD,BTN_USER} | {mcp_btn[1],mcp_btn[2],mcp_btn[0]};
+`endif
+
+wire [2:0] mcp_btn;
+wire       mcp_sdcd;
+mcp23009 mcp23009
+(
+	.clk(FPGA_CLK2_50),
+
+	.btn(mcp_btn),
+	.led({led_p, led_d, led_u}),
+	.sd_cd(mcp_sdcd),
+
+	.scl(IO_SCL),
+	.sda(IO_SDA)
+);
 
 
 reg btn_user, btn_osd;
@@ -139,7 +172,7 @@ end
 
 // gp_in[31] = 0 - quick flag that FPGA is initialized (HPS reads 1 when FPGA is not in user mode)
 //                 used to avoid lockups while JTAG loading
-wire [31:0] gp_in = {1'b0, btn_user | btn[1], btn_osd | btn[0], 1'b0, 8'd0, io_ver, io_ack, io_wide, io_dout};
+wire [31:0] gp_in = {1'b0, btn_user | btn[1], btn_osd | btn[0], SW[3], 8'd0, io_ver, io_ack, io_wide, io_dout | io_dout_sys};
 wire [31:0] gp_out;
 
 wire  [1:0] io_ver = 1; // 0 - obsolete. 1 - optimized HPS I/O. 2,3 - reserved for future.
@@ -177,7 +210,11 @@ always @(posedge clk_sys) begin
 	gp_outd <= gp_out;
 end
 
-wire  [7:0] core_type  = 'hA4; // generic core.
+`ifdef MISTER_DUAL_SDRAM
+	wire  [7:0] core_type  = 'hA8; // generic core, dual SDRAM.
+`else
+	wire  [7:0] core_type  = 'hA4; // generic core.
+`endif
 
 // HPS will not communicate to core if magic is different
 wire [31:0] core_magic = {24'h5CA623, core_type};
@@ -203,10 +240,11 @@ wire       direct_video = cfg[10];
 wire       audio_96k    = cfg[6];
 wire       csync_en     = cfg[3];
 wire       io_osd_vga   = io_ss1 & ~io_ss2;
-
-wire    ypbpr_en     = cfg[5];
-wire    sog          = cfg[9];
-wire    vga_scaler   = cfg[2] | vga_force_scaler;
+`ifndef MISTER_DUAL_SDRAM
+	wire    ypbpr_en     = cfg[5];
+	wire    sog          = cfg[9];
+	wire    vga_scaler   = cfg[2] | vga_force_scaler;
+`endif
 
 reg        cfg_custom_t = 0;
 reg  [5:0] cfg_custom_p1;
@@ -1234,6 +1272,7 @@ osd vga_osd
 wire vga_cs_osd;
 csync csync_vga(clk_vid, vga_hs_osd, vga_vs_osd, vga_cs_osd);
 
+`ifndef MISTER_DUAL_SDRAM
 	wire VGA_DISABLE;
 	wire [23:0] vgas_o;
 	wire vgas_hs, vgas_vs, vgas_cs;
@@ -1269,14 +1308,12 @@ csync csync_vga(clk_vid, vga_hs_osd, vga_vs_osd, vga_cs_osd);
 
 	wire cs1 = (vga_fb | vga_scaler) ? vgas_cs : vga_cs;
 
-	assign VGA_VS = (VGA_EN) ? 1'bZ      :((((vga_fb | vga_scaler) ? ~vgas_vs : ~vga_vs) | csync_en) ^ VS[12]);
-	assign VGA_HS = (VGA_EN) ? 1'bZ      : (((vga_fb | vga_scaler) ? (csync_en ? ~vgas_cs : ~vgas_hs) : (csync_en ? ~vga_cs : ~vga_hs)) ^ HS[12]);
-	assign VGA_R  = (VGA_EN) ? 8'bZZZZZZ :  (vga_fb | vga_scaler) ? vgas_o[23:16] : vga_o[23:16];
-	assign VGA_G  = (VGA_EN) ? 8'bZZZZZZ :  (vga_fb | vga_scaler) ? vgas_o[15:8]  : vga_o[15:8];
-	assign VGA_B  = (VGA_EN) ? 8'bZZZZZZ :  (vga_fb | vga_scaler) ? vgas_o[7:0]   : vga_o[7:0];
-
+	assign VGA_VS = (VGA_EN | SW[3]) ? 1'bZ      : (((vga_fb | vga_scaler) ? (~vgas_vs ^ VS[12])                         : VGA_DISABLE ? 1'd1 : ~vga_vs) | csync_en);
+	assign VGA_HS = (VGA_EN | SW[3]) ? 1'bZ      :  ((vga_fb | vga_scaler) ? ((csync_en ? ~vgas_cs : ~vgas_hs) ^ HS[12]) : VGA_DISABLE ? 1'd1 : (csync_en ? ~vga_cs : ~vga_hs));
+	assign VGA_R  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[23:18]                               : VGA_DISABLE ? 6'd0 : vga_o[23:18];
+	assign VGA_G  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[15:10]                               : VGA_DISABLE ? 6'd0 : vga_o[15:10];
 	assign VGA_B  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[7:2]                                 : VGA_DISABLE ? 6'd0 : vga_o[7:2]  ;
-
+`endif
 
 reg video_sync = 0;
 always @(posedge clk_vid) begin
@@ -1305,11 +1342,15 @@ end
 
 /////////////////////////  Audio output  ////////////////////////////////
 
-wire analog_l, analog_r;
+assign SDCD_SPDIF =(SW[3] & ~spdif) ? 1'b0 : 1'bZ;
 
-assign AUDIO_SPDIF = SW[0] ? HDMI_LRCLK : spdif;
-assign AUDIO_R     = SW[0] ? HDMI_I2S   : analog_r;
-assign AUDIO_L     = SW[0] ? HDMI_SCLK  : analog_l;
+`ifndef MISTER_DUAL_SDRAM
+	wire analog_l, analog_r;
+
+	assign AUDIO_SPDIF = SW[3] ? 1'bZ : SW[0] ? HDMI_LRCLK : spdif;
+	assign AUDIO_R     = SW[3] ? 1'bZ : SW[0] ? HDMI_I2S   : analog_r;
+	assign AUDIO_L     = SW[3] ? 1'bZ : SW[0] ? HDMI_SCLK  : analog_l;
+`endif
 
 assign HDMI_MCLK = clk_audio;
 wire clk_audio;
@@ -1350,9 +1391,10 @@ audio_out audio_out
 	.i2s_bclk(HDMI_SCLK),
 	.i2s_lrclk(HDMI_LRCLK),
 	.i2s_data(HDMI_I2S),
+`ifndef MISTER_DUAL_SDRAM
 	.dac_l(analog_l),
 	.dac_r(analog_r),
-
+`endif
 	.spdif(spdif)
 );
 
@@ -1407,6 +1449,7 @@ assign USER_IO2[6] = !user_out2[6] ? 1'b0 : 1'bZ;
 assign USER_IO2[7] = !user_out2[7] ? 1'b0 : 1'bZ;
 
 assign user_in2 = USER_IO2;
+
 
 ///////////////////  User module connection ////////////////////////////
 
@@ -1575,6 +1618,18 @@ emu emu
 	.SDRAM_nRAS(SDRAM_nRAS),
 	.SDRAM_nCAS(SDRAM_nCAS),
 	.SDRAM_CLK(SDRAM_CLK),
+
+`ifdef MISTER_DUAL_SDRAM
+	.SDRAM2_DQ(SDRAM2_DQ),
+	.SDRAM2_A(SDRAM2_A),
+	.SDRAM2_BA(SDRAM2_BA),
+	.SDRAM2_nCS(SDRAM2_nCS),
+	.SDRAM2_nWE(SDRAM2_nWE),
+	.SDRAM2_nRAS(SDRAM2_nRAS),
+	.SDRAM2_nCAS(SDRAM2_nCAS),
+	.SDRAM2_CLK(SDRAM2_CLK),
+	.SDRAM2_EN(SW[3]),
+`endif
 
 	.BUTTONS(btn),
 	.OSD_STATUS(osd_status),

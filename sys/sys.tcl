@@ -55,6 +55,14 @@ set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to USER_IO2[*]
 set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to USER_IO2[*]
 
 #============================================================
+# SDIO_CD or SPDIF_OUT
+#============================================================
+set_location_assignment PIN_AH7 -to SDCD_SPDIF
+set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SDCD_SPDIF
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SDCD_SPDIF
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDCD_SPDIF
+
+#============================================================
 # SDRAM
 #============================================================
 set_location_assignment PIN_Y11 -to SDRAM_A[0]

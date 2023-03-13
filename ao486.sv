@@ -132,6 +132,20 @@ module emu
 	output        SDRAM_nRAS,
 	output        SDRAM_nWE,
 
+`ifdef MISTER_DUAL_SDRAM
+	//Secondary SDRAM
+	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
+	input         SDRAM2_EN,
+	output        SDRAM2_CLK,
+	output [12:0] SDRAM2_A,
+	output  [1:0] SDRAM2_BA,
+	inout  [15:0] SDRAM2_DQ,
+	output        SDRAM2_nCS,
+	output        SDRAM2_nCAS,
+	output        SDRAM2_nRAS,
+	output        SDRAM2_nWE,
+`endif
+
 	input         UART_CTS,
 	output        UART_RTS,
 	input         UART_RXD,
@@ -144,7 +158,7 @@ module emu
 	// 1 - D-/TX
 	// 2..6 - USR2..USR6
 	// Set USER_OUT to 1 to read from USER_IN.
-
+	
 	input   [7:0] USER_IN,
 	output  [7:0] USER_OUT,
 	input   [7:0] USER_IN2,
@@ -153,54 +167,7 @@ module emu
 	input         OSD_STATUS
 );
 
-wire         CLK_JOY = CLK_50M & mt32_disable;         //Assign clock between 40-50Mhz
-wire   [2:0] JOY_FLAG = mt32_disable ? {db9md_ena,~db9md_ena,1'b0} : 3'b000;   //Assign 3 bits of status (31:29) o (63:61)
-wire         JOY_CLK, JOY_LOAD, JOY_SPLIT, JOY_MDSEL;
-wire   [5:0] JOY_MDIN  = JOY_FLAG[2] ? {USER_IN[6],USER_IN[3],USER_IN[5],USER_IN[7],USER_IN[1],USER_IN[2]} : '1;
-wire         JOY_DATA  = JOY_FLAG[1] ? USER_IN[5] : '1;
-//assign       USER_OUT  = JOY_FLAG[2] ? {3'b111,JOY_SPLIT,3'b111,JOY_MDSEL} : JOY_FLAG[1] ? {6'b111011,JOY_CLK,JOY_LOAD} : '1;
-
-reg  db9md_ena=1'b0;
-reg  db9_1p_ena=1'b0,db9_2p_ena=1'b0;
-wire db9_status = db9md_ena ? 1'b1 : USER_IN[7];
-always @(posedge clk_sys) 
- begin
-	if(~db9md_ena & ~db9_status) db9md_ena <= 1'b1; 
-   if(JOYDB9MD_1[2] || JOYDB15_1[2]) db9_1p_ena <= 1'b1;
-	if(~JOYDB9MD_1[2] && JOYDB9MD_2[2] || JOYDB15_2[2]) db9_2p_ena <= 1'b1; //Se niega el del player 1 por si no hay Splitter que no se duplique
- end
-
-wire [15:0] JOY_DB1 = db9md_ena ? JOYDB9MD_1 : JOYDB15_1;
-wire [15:0] JOY_DB2 = db9md_ena ? JOYDB9MD_2 : JOYDB15_2;
-
-reg [15:0] JOYDB9MD_1,JOYDB9MD_2;
-joy_db9md joy_db9md
-(
-  .clk       ( CLK_JOY    ), //40-50MHz
-  .joy_split ( JOY_SPLIT  ),
-  .joy_mdsel ( JOY_MDSEL  ),
-  .joy_in    ( JOY_MDIN   ),
-  .joystick1 ( JOYDB9MD_1 ),
-  .joystick2 ( JOYDB9MD_2 )	  
-);
-
-reg [15:0] JOYDB15_1,JOYDB15_2;
-joy_db15 joy_db15
-(
-  .clk       ( CLK_JOY   ), //48MHz
-  .JOY_CLK   ( JOY_CLK   ),
-  .JOY_DATA  ( JOY_DATA  ),
-  .JOY_LOAD  ( JOY_LOAD  ),
-  .joystick1 ( JOYDB15_1 ),
-  .joystick2 ( JOYDB15_2 )	  
-
-);
-
-wire [15:0] JOY0 = db9_1p_ena ? JOY_DB1 : JOY0_USB;
-wire [15:0] JOY1 = db9_2p_ena ? JOY_DB2 : db9_1p_ena ? JOY0_USB : JOY1_USB;
-wire [15:0] JOY2 = db9_2p_ena ? JOY0_USB : db9_1p_ena ? JOY1_USB : JOY2_USB;
-wire [15:0] JOY3 = db9_2p_ena ? JOY1_USB : db9_1p_ena ? JOY2_USB : JOY3_USB;
-
+//`define DEBUG
 
 assign ADC_BUS  = 'Z;
 assign {SDRAM_A, SDRAM_BA, SDRAM_DQ, SDRAM_CLK, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
@@ -218,7 +185,7 @@ led fdd_led(clk_sys, |mgmt_req[7:6], LED_USER);
 // 0         1         2         3          4         5         6
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// XXXXXXXXXXXXXXXXXXXXXXXXX XXXXXX XXXXXXXXXXXXXXXXXXX
+// XXXXXXXXXXXXXXXXXXXXXXXXX XXXXXX XXXXXXXXXXXXXXXXXXXXXXX
 
 `include "build_id.v"
 localparam CONF_STR =
@@ -234,7 +201,8 @@ localparam CONF_STR =
 	"S4,VHDISOCUECHD,IDE 1-0;",
 	"S5,VHDISOCUECHD,IDE 1-1;",
 	"-;",
-
+	"oJM,CPU Preset,User Defined,~PC XT-7MHz,~PC AT-8MHz,~PC AT-10MHz,~PC AT-20MHz,~PS/2-20MHz,~386SX-25MHz,~386DX-33Mhz,~386DX-40Mhz,~486SX-33Mhz,~486DX-33Mhz,MAX (unstable);",
+	"-;",
 	"P1,Audio & Video;",
 	"P1-;",
 	"P1OMN,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -260,11 +228,11 @@ localparam CONF_STR =
 	"P2-;",
 	"P2OB,RAM Size,256MB,16MB;",
 `ifndef DEBUG
-	"P2-;",
-	"D2D1P2O56,CPU Clock,90MHz,15MHz,30MHz,56MHz;",
-	"h0P2O7,Overclock,Off,100Mhz;",
-	"D2P2OF,L1 Cache,On,Off;",
-	"D2P2OG,L2 Cache,On,Off;",
+	"H5P2-;",
+	"H5D2D1P2O56,CPU Clock,90MHz,15MHz,30MHz,56MHz;",
+	"H5h0P2O7,Overclock,Off,100Mhz;",
+	"H5D2P2OF,L1 Cache,On,Off;",
+	"H5D2P2OG,L2 Cache,On,Off;",
 `endif
 	"P2-;",
 	"P2OA,USER I/O,MIDI,COM2;",
@@ -321,11 +289,8 @@ wire        ps2_mouse_data_in;
 wire  [1:0] buttons;
 wire [63:0] status;
 
-wire [15:0] JOY0_USB;
-wire [15:0] JOY1_USB;
-wire [15:0] JOY2_USB;
-wire [15:0] JOY3_USB;
-
+wire [13:0] joystick_0;
+wire [13:0] joystick_1;
 wire [15:0] joystick_l_analog_0;
 wire [15:0] joystick_l_analog_1;
 wire [15:0] joystick_r_analog_0;
@@ -353,7 +318,7 @@ hps_io #(.CONF_STR(CONF_STR), .CONF_STR_BRAM(0), .PS2DIV(2000), .PS2WE(1), .WIDE
 
 	.buttons(buttons),
 	.status(status),
-	.status_menumask({mt32_newmode,mt32_available,syscfg[7],status[7],dbg_menu}),
+	.status_menumask({|status[54:51],mt32_newmode,mt32_available,syscfg[7],status[7],dbg_menu}),
 	.info_req(mt32_info_req),
 	.info(mt32_info_disp),
 
@@ -363,8 +328,8 @@ hps_io #(.CONF_STR(CONF_STR), .CONF_STR_BRAM(0), .PS2DIV(2000), .PS2WE(1), .WIDE
 	.uart_mode(uart1_mode),
 	.uart_speed(uart1_speed),
 
-	.joystick_0(JOY0_USB),
-	.joystick_1(JOY1_USB),
+	.joystick_0(joystick_0),
+	.joystick_1(joystick_1),
 	.joystick_l_analog_0(joystick_l_analog_0),
 	.joystick_l_analog_1(joystick_l_analog_1),
 	.joystick_r_analog_0(joystick_r_analog_0),
@@ -456,7 +421,28 @@ pll_cfg pll_cfg
 );
 
 reg [2:0] clk_req;
-always @(posedge clk_sys) clk_req <= {status[7], syscfg[7] ? syscfg[1:0] : status[6:5]};
+reg l1, l2;
+always @(posedge clk_sys) begin
+	case(status[54:51])
+		'd1: begin clk_req <= 'd3; l1 <= 1'b1; l2 <= 1'b1; end  // ao486 XT 7
+		'd2: begin clk_req <= 'd1; l1 <= 1'b1; l2 <= 1'b0; end  // ao486 AT 8
+		'd3: begin clk_req <= 'd2; l1 <= 1'b0; l2 <= 1'b1; end  // ao486 AT 10
+		'd4: begin clk_req <= 'd2; l1 <= 1'b1; l2 <= 1'b0; end  // ao486 AT 20
+		'd5: begin clk_req <= 'd1; l1 <= 1'b0; l2 <= 1'b0; end  // ao486 PS/2 20
+		'd6: begin clk_req <= 'd3; l1 <= 1'b1; l2 <= 1'b0; end  // ao486 3SX 25
+		'd7: begin clk_req <= 'd2; l1 <= 1'b0; l2 <= 1'b0; end  // ao486 3DX 33 
+		'd8: begin clk_req <= 'd0; l1 <= 1'b1; l2 <= 1'b0; end  // ao486 3DX 40
+		'd9: begin clk_req <= 'd3; l1 <= 1'b0; l2 <= 1'b0; end  // ao486 4SX 33
+		'd10: begin clk_req <= 'd0; l1 <= 1'b0; l2 <= 1'b0; end // ao486 MAX (stable)
+		'd11: begin clk_req <= 'd4; l1 <= 1'b0; l2 <= 1'b0; end // ao486 MAX+ (unstable)
+		default: begin 
+		// CPU & Cache config
+		clk_req <= {status[7], syscfg[7] ? syscfg[1:0] : status[6:5]};
+		l1 <= syscfg[7] ? syscfg[4] : status[15];
+		l2 <= syscfg[7] ? syscfg[5] : status[16];
+		end
+	endcase
+end
 
 reg [2:0] speed;
 always @(posedge CLK_50M) begin
@@ -561,7 +547,7 @@ assign USER_OUT2 = user_io_mode ? {1'b1, 1'b1, uart2_dtr, 1'b1, uart2_rts, uart2
 assign USER_OUT = user_io_mode ? {1'b1, 1'b1, uart2_dtr, 1'b1, uart2_rts, uart2_tx, 1'b1} : mt32_out;
 `endif
 
-assign USER_OUT = user_io_mode ? {1'b1, 1'b1, uart2_dtr, 1'b1, uart2_rts, uart2_tx, 1'b1} : mt32_out;
+//assign USER_OUT = user_io_mode ? {1'b1, 1'b1, uart2_dtr, 1'b1, uart2_rts, uart2_tx, 1'b1} : mt32_out;
 
 //
 // Pin | USB Name |   |Signal
@@ -762,8 +748,8 @@ system system
 	.clock_rate           (cur_rate),
 	
 	.syscfg               (syscfg),
-	.l1_disable           (syscfg[7] ? syscfg[4] : status[15]),
-	.l2_disable           (syscfg[7] ? syscfg[5] : status[16]),
+	.l1_disable           (l1),
+	.l2_disable           (l2),
 
 	.video_ce             (vga_ce),
 	.video_f60            (~status[4] | f60),
@@ -806,8 +792,9 @@ system system
 	.ps2_mouseclk_out     (ps2_mouse_clk_in),
 	.ps2_mousedat_out     (ps2_mouse_data_in),
 
-	.joystick_dig_1       (JOY0_USB),
-	.joystick_dig_2       (status[25] ? 14'd0 : JOY1_USB),
+	.joystick_dis         (joystick_dis),
+	.joystick_dig_1       (joystick_0 & dig_mask),
+	.joystick_dig_2       (status[47] ? 14'd0 : (joystick_1 & dig_mask)),
 	.joystick_ana_1       ({ja_1y,ja_1x}),
 	.joystick_ana_2       ({ja_2y,ja_2x}),
 	.joystick_mode        (status[13:12]),
